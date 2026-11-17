@@ -1,0 +1,97 @@
+
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Logging;
+using System.Text.Json.Serialization;
+
+public class SurveyProjectionFunction
+{
+    private readonly CosmosClient _client;
+    private readonly ILogger<SurveyProjectionFunction> _logger;
+
+    public SurveyProjectionFunction(
+        CosmosClient client,
+        ILogger<SurveyProjectionFunction> logger)
+    {
+        _client = client;
+        _logger = logger;
+    }
+
+    [Function("SurveyProjectionFunction")]
+    public async Task Run(
+        [CosmosDBTrigger(
+            databaseName: "SurveyDB",
+            containerName: "survey-current",
+            Connection = "CosmosDBConnection",
+            LeaseContainerName = "leases",
+            CreateLeaseContainerIfNotExists = true)]
+        IReadOnlyList<SurveyDocument> changes)
+    {
+        if (changes == null || changes.Count == 0)
+            return;
+
+        var projectionContainer = _client.GetContainer(
+            "SurveyDB",
+            "survey-read-projection");
+
+        _logger.LogInformation(
+            "Received {Count} changed documents",
+            changes.Count);
+
+        foreach (var survey in changes)
+        {
+            var projection = new SurveyProjection
+            {
+                Id = survey.Id,
+                Uarn = survey.Uarn,
+                SurveyType = survey.SurveyType,
+                Status = survey.Status,
+                Version = survey.Version
+            };
+
+            await projectionContainer.UpsertItemAsync(
+                projection,
+                new PartitionKey(projection.Uarn));
+
+            _logger.LogInformation(
+                "Projection updated: {Id}",
+                survey.Id);
+        }
+    }
+}
+
+public class SurveyDocument
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("uarn")]
+    public string Uarn { get; set; } = "";
+
+    [JsonPropertyName("surveyType")]
+    public string SurveyType { get; set; } = "";
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "";
+
+    [JsonPropertyName("version")]
+    public int Version { get; set; }
+}
+
+public class SurveyProjection
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("uarn")]
+    public string Uarn { get; set; } = "";
+
+    [JsonPropertyName("surveyType")]
+    public string SurveyType { get; set; } = "";
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "";
+
+    [JsonPropertyName("version")]
+    public int Version { get; set; }
+}
