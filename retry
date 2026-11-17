@@ -1,0 +1,32 @@
+private static async Task UpsertWithRetryAsync(
+    Container container,
+    SurveyProjection projection)
+{
+    const int maxAttempts = 5;
+
+    for (int attempt = 1; attempt <= maxAttempts; attempt++)
+    {
+        try
+        {
+            await container.UpsertItemAsync(
+                projection,
+                new PartitionKey(projection.Uarn)
+            );
+
+            return;
+        }
+        catch (CosmosException ex)
+            when (attempt < maxAttempts &&
+                  (ex.StatusCode == HttpStatusCode.RequestTimeout ||
+                   ex.StatusCode == HttpStatusCode.TooManyRequests ||
+                   (int)ex.StatusCode >= 500))
+        {
+            var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+            await Task.Delay(delay);
+        }
+    }
+
+    throw new Exception(
+        $"Projection upsert failed for {projection.Id} after retries."
+    );
+}
